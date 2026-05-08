@@ -130,3 +130,11 @@ identifier 示例：
 - 推荐精准（1-3 个），不让用户选择困难
 - 优先推荐 trust_level 高的技能（builtin > trusted > community）
 - 没有匹配到时诚实告知，建议浏览 https://hermes-agent.nousresearch.com/docs/skills
+
+## 已知限制
+
+### tags 字段缺失
+skills.sh（1234 个）和 github（62 个）来源的技能 `tags` 字段为空数组。对这些技能只能依赖 `name` + `description` 关键词匹配，不影响搜索效果但无法用标签精准过滤。
+
+### clawhub identifier 格式
+clawhub 来源（199 个）的 identifier 使用裸名称格式（如 `1password-browser-login`），不含标准路径前缀，且缺少 `repo` 和 `path` 字段。推荐 clawhub 技能时，提示用户可能需要手动在 clawhub.ai 搜索确认安装方式。
