@@ -1,11 +1,18 @@
 ---
 name: hermes-skill-finder
 description: Use when the user wants to find, discover, or install a skill/plugin for their AI agent. Triggers on "find skill", "找技能", "推荐插件", "install skill", "need a tool for", "有什么技能可以", or any request to discover capabilities from the Hermes skill marketplace.
+version: 2.0.0
+author: Ming-H
+license: MIT
+metadata:
+  hermes:
+    tags: [skill-discovery, skill-search, hermes, marketplace, plugin-finder]
+    requires_toolsets: [web]
 ---
 
 # Hermes Skill Finder
 
-从 Hermes Agent 技能市场（680+ 技能）中实时检索，根据用户需求推荐最合适的技能并给出安装方式。
+从 Hermes Agent 技能市场（2000+ 技能）中实时检索，根据用户需求推荐最合适的技能并给出安装方式。
 
 ## 工作流程
 
@@ -21,97 +28,61 @@ description: Use when the user wants to find, discover, or install a skill/plugi
 
 如果用户已经在对话中提到过自己的 Agent，直接使用；否则简短询问。
 
-### Step 2: 获取全部技能数据（680+）
+### Step 2: 获取全部技能数据（2000+）
 
-网站是 Docusaurus 站点，技能数据打包在一个 JS chunk 中。用以下 Python 脚本一步完成动态发现和数据提取：
+通过官方 JSON API 一次请求获取全部技能：
 
 ```python
-import urllib.request, re
-
-# 1. 获取页面 HTML，提取 runtime.js URL
-html = urllib.request.urlopen("https://hermes-agent.nousresearch.com/docs/skills").read().decode()
-
-# 2. 下载 runtime.js，提取 chunk 2013 的两个 hash
-runtime_hash = re.search(r'runtime~main\.([a-f0-9]+)\.js', html).group(1)
-runtime_js = urllib.request.urlopen(f"https://hermes-agent.nousresearch.com/docs/assets/js/runtime~main.{runtime_hash}.js").read().decode()
-hashes = re.findall(r'"?2013"?:\s*"([a-f0-9]{8})"', runtime_js)
-content_hash, runtime_hash_2013 = hashes[0], hashes[1]
-
-# 3. 下载技能数据 chunk
-chunk = urllib.request.urlopen(f"https://hermes-agent.nousresearch.com/docs/assets/js/{content_hash}.{runtime_hash_2013}.js").read().decode()
-
-# 4. 提取技能列表
-def extract_field(block, field):
-    m = re.search(rf'"{field}":"((?:[^"\\]|\\.)*)"', block)
-    return m.group(1).replace('\\"', '"') if m else ""
-
-positions = [m.start() for m in re.finditer(r'\{"name":', chunk)]
-skills = []
-for i in range(len(positions)):
-    start = positions[i]
-    end = positions[i+1]-2 if i+1 < len(positions) else len(chunk)
-    block = chunk[start:end]
-    skills.append({"name": extract_field(block, "name"),
-                   "description": extract_field(block, "description"),
-                   "category": extract_field(block, "category"),
-                   "categoryLabel": extract_field(block, "categoryLabel"),
-                   "source": extract_field(block, "source")})
-# skills 即为全部 680+ 技能列表
+import urllib.request, json
+data = json.loads(urllib.request.urlopen(
+    "https://hermes-agent.nousresearch.com/docs/api/skills-index.json").read())
+skills = data["skills"]  # 2000+ skills
 ```
 
-每个技能包含：`name`（名称）、`description`（描述）、`category`（分类 key）、`categoryLabel`（分类显示名）、`source`（来源）。
+API 地址：`https://hermes-agent.nousresearch.com/docs/api/skills-index.json`
 
-**原理说明：** 网站构建时，`src/data/skills.json` 被打包进 webpack chunk 2013。runtime.js 中有两张 hash 表：第一张映射 chunk ID → content hash，第二张映射 chunk ID → runtime hash。最终 URL 为 `contentHash.runtimeHash.js`。当网站重新构建时 hash 会变化，此脚本动态发现新 hash。
+公开免费，无需认证，CORS 无限制（`access-control-allow-origin: *`）。
+
+每个技能包含以下字段：
+
+| 字段 | 说明 | 用途 |
+|------|------|------|
+| `name` | 技能名称 | 展示 |
+| `description` | 功能描述 | 搜索匹配 |
+| `source` | 来源（official/skills.sh/lobehub/clawhub/github/claude-marketplace） | 信任度判断 |
+| `trust_level` | 信任级别（builtin/trusted/community） | 推荐排序 |
+| `identifier` | 安装标识符 | 直接用于安装命令 |
+| `tags[]` | 标签列表 | 精准搜索匹配 |
+| `repo` | GitHub 仓库 | 源码链接 |
+
+来源分布：
+- skills.sh: 1234 | lobehub: 500 | clawhub: 199 | official: 71 | github: 62 | claude-marketplace: 1
 
 ### 降级方案
 
-如果 chunk 获取失败，使用以下数据源（覆盖约 174 个技能）：
+如果官方 API 不可用，使用 GitHub 仓库数据（约 174 个技能）：
 
 ```bash
-# Built-in 技能 (~89)
 curl -s https://raw.githubusercontent.com/NousResearch/hermes-agent/main/website/docs/reference/skills-catalog.md
-
-# Optional 技能 (~64)
 curl -s https://raw.githubusercontent.com/NousResearch/hermes-agent/main/website/docs/reference/optional-skills-catalog.md
-
-# 社区技能索引
-curl -s https://raw.githubusercontent.com/NousResearch/hermes-agent/main/skills/index-cache/anthropics_skills_skills_.json
 ```
 
-### Step 3: 分类对照
-
-技能涵盖以下分类：
-
-| 分类 | 说明 |
-|------|------|
-| Apple | macOS 原生集成（Notes、Reminders、FindMy、iMessage） |
-| AI Agents | 编码 Agent 委托（Claude Code、Codex、OpenCode） |
-| Creative | 设计/创意（架构图、ComfyUI、Excalidraw、p5.js、设计系统） |
-| MLOps | 机器学习（训练、推理、评估、向量数据库） |
-| GitHub | PR review、Issues、代码审查、仓库管理 |
-| Media | Spotify、YouTube、GIF、AI 音乐 |
-| Productivity | Airtable、Google Workspace、Linear、Notion |
-| Research | arXiv、论文写作、OSINT、生物信息 |
-| Software Dev | TDD、调试、计划、代码审查 |
-| Security | 1Password、取证、用户名搜索 |
-| DevOps | Kanban、Docker、Webhook |
-| MCP | FastMCP、MCPorter |
-| 其他 | Blockchain、Health、Gaming、Smart Home、Social Media、Email |
-
-### Step 4: 智能匹配
+### Step 3: 智能匹配
 
 根据用户的自然语言需求，匹配最合适的 1-3 个技能。匹配策略：
 
-1. **分类路由**: 根据需求所属领域锁定相关分类
-2. **关键词匹配**: 需求关键词与技能名称和描述匹配
-3. **语义理解**: 理解用户真正想要什么，即使表达方式与技能描述不同
+1. **标签匹配（优先）**: 用 `tags[]` 字段精准匹配用户需求关键词
+2. **分类路由**: 根据 `identifier` 中的分类路径锁定领域
+3. **描述语义匹配**: 在 `description` 中搜索关键词
+4. **名称匹配**: 直接匹配技能名称
 
 匹配时考虑：
+- **信任度排序**: builtin > trusted > community，优先推荐高质量技能
 - 用户的具体使用场景
 - 技能之间的互补关系（可以一起推荐）
 - 用户的 Agent 平台兼容性
 
-### Step 5: 返回推荐结果
+### Step 4: 返回推荐结果
 
 输出格式：
 
@@ -120,8 +91,9 @@ curl -s https://raw.githubusercontent.com/NousResearch/hermes-agent/main/skills/
 
 ### 1. [技能名称]
 **简介**: 一句话描述
-**分类**: 分类标签
-**来源**: Built-in / Optional / Anthropic / LobeHub
+**来源**: official / skills.sh / lobehub / clawhub / github
+**信任级别**: builtin / trusted / community
+**标签**: tag1, tag2, tag3
 **安装**: `安装命令`
 ```
 
@@ -138,15 +110,23 @@ curl -s https://raw.githubusercontent.com/NousResearch/hermes-agent/main/skills/
 
 **Hermes 用户：** 全部兼容，无需额外标注。
 
-### Step 6: 安装辅助
+### Step 5: 安装辅助
 
-如果用户确认要安装，帮助执行安装命令。identifier 规则：
-- Built-in/Optional: `official/<category>/<name>` (Hermes) 或 `NousResearch/hermes-agent/skills/<category>/<name>` (npx)
-- 社区技能: 按来源确定（如 `anthropics/skills/skills/<name>`）
+如果用户确认要安装，帮助执行安装命令。`identifier` 字段直接用于安装：
+
+- Claude Code: `npx skills add <identifier> -a claude-code -g`
+- Hermes: `hermes skills install <identifier>`
+- 通用: `npx skills add <identifier> --all`
+
+identifier 示例：
+- 官方技能: `official/security/1password`
+- GitHub 技能: `anthropics/skills/skills/frontend-design`
+- skills.sh 技能: `skills-sh/<org>/<skill-name>`
 
 ## 注意事项
 
 - 每次触发都重新获取数据，不使用缓存
-- JS chunk 的 hash 会在网站重新构建时变化，需要动态发现
+- API 响应包含 `generated_at` 时间戳，可用于判断数据新鲜度
 - 推荐精准（1-3 个），不让用户选择困难
+- 优先推荐 trust_level 高的技能（builtin > trusted > community）
 - 没有匹配到时诚实告知，建议浏览 https://hermes-agent.nousresearch.com/docs/skills
