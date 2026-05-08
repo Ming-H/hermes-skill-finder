@@ -30,42 +30,53 @@ metadata:
 
 ### Step 2: 获取全部技能数据（2000+）
 
-通过官方 JSON API 一次请求获取全部技能：
+使用双源混合策略，确保覆盖完整且搜索质量高：
+
+**数据源 A: 官方 JSON API（2000+ 社区技能）**
 
 ```python
 import urllib.request, json
-data = json.loads(urllib.request.urlopen(
+api_data = json.loads(urllib.request.urlopen(
     "https://hermes-agent.nousresearch.com/docs/api/skills-index.json").read())
-skills = data["skills"]  # 2000+ skills
+community_skills = api_data["skills"]  # 2067 skills
 ```
 
 API 地址：`https://hermes-agent.nousresearch.com/docs/api/skills-index.json`
 
-公开免费，无需认证，CORS 无限制（`access-control-allow-origin: *`）。
+公开免费，无需认证，CORS 无限制。
 
-每个技能包含以下字段：
+覆盖来源：skills.sh (1234)、lobehub (500)、clawhub (199)、github (62)、claude-marketplace (1)。
 
-| 字段 | 说明 | 用途 |
-|------|------|------|
-| `name` | 技能名称 | 展示 |
-| `description` | 功能描述 | 搜索匹配 |
-| `source` | 来源（official/skills.sh/lobehub/clawhub/github/claude-marketplace） | 信任度判断 |
-| `trust_level` | 信任级别（builtin/trusted/community） | 推荐排序 |
-| `identifier` | 安装标识符 | 直接用于安装命令 |
-| `tags[]` | 标签列表 | 精准搜索匹配 |
-| `repo` | GitHub 仓库 | 源码链接 |
-
-来源分布：
-- skills.sh: 1234 | lobehub: 500 | clawhub: 199 | official: 71 | github: 62 | claude-marketplace: 1
-
-### 降级方案
-
-如果官方 API 不可用，使用 GitHub 仓库数据（约 174 个技能）：
+**数据源 B: GitHub 仓库目录（153 个高质量内置技能）**
 
 ```bash
+# Built-in 技能 (89 个，有完整描述)
 curl -s https://raw.githubusercontent.com/NousResearch/hermes-agent/main/website/docs/reference/skills-catalog.md
+
+# Optional 技能 (64 个，有完整描述)
 curl -s https://raw.githubusercontent.com/NousResearch/hermes-agent/main/website/docs/reference/optional-skills-catalog.md
 ```
+
+这是数据源 A 的**必要补充**。API 缺失了 Hermes 全部 89 个 Built-in 技能（如 `github-code-review`、`spotify`、`unsloth`、`claude-design` 等），这些是质量最高、最常用的技能，必须从 GitHub 目录获取。目录中的 Markdown 表格格式为：
+
+```
+| [`skill-name`](link) | 描述文字 | `category/skill-name` |
+```
+
+**合并策略：**
+
+1. 先从数据源 B 获取内置技能（完整描述，trust_level=builtin）
+2. 再从数据源 A 获取社区技能
+3. 以数据源 B 的内置技能为准（覆盖 API 中可能存在的同名旧版本）
+4. 推荐排序：数据源 B 的 builtin > 数据源 A 的 trusted > community
+
+**数据源 A 已知问题（推荐时注意）：**
+
+| 问题 | 影响 | 处理方式 |
+|------|------|---------|
+| skills.sh 1234 个条目无实际描述（仅 `"Indexed by skills.sh from <repo>"`） | 搜索匹配无效 | 跳过无描述的 skills.sh 条目，或在描述中提取 repo 名称作为线索 |
+| 91 个技能名重复（如 `frontend-design` 出现 11 次） | 推荐时混淆 | 同名技能只推荐 trust_level 最高的那个 |
+| clawhub identifier 使用裸名称格式 | 安装命令可能不兼容 | 推荐 clawhub 技能时提示用户确认安装方式 |
 
 ### Step 3: 智能匹配
 
@@ -133,8 +144,14 @@ identifier 示例：
 
 ## 已知限制
 
-### tags 字段缺失
-skills.sh（1234 个）和 github（62 个）来源的技能 `tags` 字段为空数组。对这些技能只能依赖 `name` + `description` 关键词匹配，不影响搜索效果但无法用标签精准过滤。
+### API 缺失 Hermes Built-in 技能
+官方 JSON API 不包含 Hermes 的 89 个 Built-in 技能（如 `github-code-review`、`spotify`、`claude-design`、`unsloth` 等）。这些是最常用、质量最高的技能，必须从 GitHub 仓库目录获取。已在 Step 2 中通过双源混合策略解决。
+
+### skills.sh 技能无实际描述
+API 中 1234 个 skills.sh 条目的 description 仅为 `"Indexed by skills.sh from <repo>"` 或 `"Featured on skills.sh from <repo>"`，无法用于搜索匹配。推荐时跳过这些条目，或从 repo 名称提取线索。
+
+### 同名技能重复
+91 个技能名在 API 中重复（如 `frontend-design` 出现 11 次）。推荐时只取 trust_level 最高的版本，不重复推荐。
 
 ### clawhub identifier 格式
-clawhub 来源（199 个）的 identifier 使用裸名称格式（如 `1password-browser-login`），不含标准路径前缀，且缺少 `repo` 和 `path` 字段。推荐 clawhub 技能时，提示用户可能需要手动在 clawhub.ai 搜索确认安装方式。
+clawhub 来源（199 个）的 identifier 使用裸名称格式（如 `1password-browser-login`），缺少标准路径前缀。推荐时提示用户确认安装方式。
