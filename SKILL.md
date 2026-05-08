@@ -1,18 +1,18 @@
 ---
-name: hermes-skill-finder
-description: Use when the user wants to find, discover, or install a skill/plugin for their AI agent. Triggers on "find skill", "找技能", "推荐插件", "install skill", "need a tool for", "有什么技能可以", or any request to discover capabilities from the Hermes skill marketplace.
-version: 2.0.0
+name: agent-skill-finder
+description: Use when the user wants to find, discover, or install a skill/plugin for their AI agent. Triggers on "find skill", "找技能", "推荐插件", "install skill", "need a tool for", "有什么技能可以", or any request to discover capabilities from agent skill marketplaces.
+version: 2.1.0
 author: Ming-H
 license: MIT
 metadata:
   hermes:
-    tags: [skill-discovery, skill-search, hermes, marketplace, plugin-finder]
+    tags: [skill-discovery, skill-search, agent, marketplace, plugin-finder]
     requires_toolsets: [web]
 ---
 
-# Hermes Skill Finder
+# Agent Skill Finder
 
-从 Hermes Agent 技能市场（2000+ 技能）中实时检索，根据用户需求推荐最合适的技能并给出安装方式。
+从 Agent 技能市场（2000+ 技能）中实时检索，根据用户需求推荐最合适的技能并给出安装方式。
 
 ## 工作流程
 
